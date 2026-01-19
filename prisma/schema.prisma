@@ -1,0 +1,115 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  OWNER
+  PARTNER
+  FRANCHISE_OWNER
+  SELLER
+}
+
+model Franchise {
+  id        String   @id @default(uuid())
+  name      String
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  users     User[]
+  products  Product[]
+  sales     Sale[]
+  chatRooms ChatRoom[]
+}
+
+model User {
+  id           String @id @default(uuid())
+  email        String @unique
+  name         String
+  passwordHash String
+  role         Role
+
+  franchiseId String?
+  franchise   Franchise? @relation(fields: [franchiseId], references: [id])
+
+  // ✅ Opuestos requeridos por Prisma
+  sales        Sale[] // Sale.seller
+  sentMessages ChatMessage[] // ChatMessage.sender
+
+  createdAt DateTime @default(now())
+}
+
+model Product {
+  id          String    @id @default(uuid())
+  franchiseId String
+  franchise   Franchise @relation(fields: [franchiseId], references: [id])
+
+  name    String
+  sku     String?
+  price   Int // centavos
+  stock   Int     @default(0)
+  missing Int     @default(0)
+
+  // ✅ Opuesto requerido por Prisma
+  saleItems SaleItem[] // SaleItem.product
+
+  createdAt DateTime @default(now())
+
+  @@index([franchiseId])
+}
+
+model Sale {
+  id          String    @id @default(uuid())
+  franchiseId String
+  franchise   Franchise @relation(fields: [franchiseId], references: [id])
+
+  sellerId String
+  seller   User   @relation(fields: [sellerId], references: [id])
+
+  cardNumber String
+  total      Int // centavos
+  createdAt  DateTime @default(now())
+
+  items SaleItem[]
+
+  @@index([franchiseId, createdAt])
+}
+
+model SaleItem {
+  id     String @id @default(uuid())
+  saleId String
+  sale   Sale   @relation(fields: [saleId], references: [id], onDelete: Cascade)
+
+  productId String
+  product   Product @relation(fields: [productId], references: [id])
+
+  quantity  Int
+  unitPrice Int // centavos
+  subtotal  Int // centavos
+}
+
+model ChatRoom {
+  id          String     @id @default(uuid())
+  type        String // "FRANCHISE" o "GLOBAL"
+  franchiseId String?
+  franchise   Franchise? @relation(fields: [franchiseId], references: [id])
+
+  createdAt DateTime      @default(now())
+  messages  ChatMessage[]
+}
+
+model ChatMessage {
+  id     String   @id @default(uuid())
+  roomId String
+  room   ChatRoom @relation(fields: [roomId], references: [id], onDelete: Cascade)
+
+  senderId String
+  sender   User   @relation(fields: [senderId], references: [id])
+
+  text      String
+  createdAt DateTime @default(now())
+}
