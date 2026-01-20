@@ -47,7 +47,7 @@ model Product {
   id          String    @id @default(uuid())
   franchiseId String
   franchise   Franchise @relation(fields: [franchiseId], references: [id])
-
+  isActive Boolean @default(true)
   name    String
   sku     String?
   price   Int // centavos

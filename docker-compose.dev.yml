@@ -1,0 +1,35 @@
+version: "3.9"
+
+services:
+  api:
+    container_name: pos_api
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    command: sh -lc "npm install && npx prisma db push && npm run start:dev"
+    volumes:
+      - .:/usr/src/app
+      - /usr/src/app/node_modules
+    ports:
+      - "3000:3000"
+    environment:
+      DATABASE_URL: postgres://postgres:postgres@db:5432/posdb
+      JWT_SECRET: dev_secret
+      JWT_EXPIRES: 7d
+    depends_on:
+      - db
+
+  db:
+    container_name: pos_db
+    image: postgres:16
+    environment:
+      POSTGRES_DB: posdb
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5433:5432"
+    volumes:
+      - pos_db_data:/var/lib/postgresql/data
+
+volumes:
+  pos_db_data:
