@@ -6,7 +6,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.dev
-    command: sh -lc "npm install && npx prisma db push && npm run start:dev"
+    command: sh -lc "npx prisma migrate deploy && npm run start:dev"
     volumes:
       - .:/usr/src/app
       - /usr/src/app/node_modules

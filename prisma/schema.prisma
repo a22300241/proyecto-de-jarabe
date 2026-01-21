@@ -1,5 +1,6 @@
 generator client {
-  provider = "prisma-client-js"
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "linux-musl-openssl-3.0.x"]
 }
 
 datasource db {
@@ -27,37 +28,35 @@ model Franchise {
 }
 
 model User {
-  id           String @id @default(uuid())
-  email        String @unique
+  id           String   @id @default(uuid())
+  email        String   @unique
   name         String
   passwordHash String
   role         Role
+  createdAt    DateTime @default(now())
 
   franchiseId String?
   franchise   Franchise? @relation(fields: [franchiseId], references: [id])
 
-  // ✅ Opuestos requeridos por Prisma
-  sales        Sale[] // Sale.seller
-  sentMessages ChatMessage[] // ChatMessage.sender
-
-  createdAt DateTime @default(now())
+  sales        Sale[]
+  sentMessages ChatMessage[]
 }
 
 model Product {
   id          String    @id @default(uuid())
   franchiseId String
   franchise   Franchise @relation(fields: [franchiseId], references: [id])
-  isActive Boolean @default(true)
-  name    String
-  sku     String?
-  price   Int // centavos
-  stock   Int     @default(0)
-  missing Int     @default(0)
 
-  // ✅ Opuesto requerido por Prisma
-  saleItems SaleItem[] // SaleItem.product
+  isActive Boolean @default(true)
+  name     String
+  sku      String?
+  price    Int     // centavos
+  stock    Int     @default(0)
+  missing  Int     @default(0)
 
   createdAt DateTime @default(now())
+
+  saleItems SaleItem[]
 
   @@index([franchiseId])
 }
@@ -68,10 +67,10 @@ model Sale {
   franchise   Franchise @relation(fields: [franchiseId], references: [id])
 
   sellerId String
-  seller   User   @relation(fields: [sellerId], references: [id])
+  seller   User @relation(fields: [sellerId], references: [id])
 
-  cardNumber String
-  total      Int // centavos
+  cardNumber String?
+  total      Int
   createdAt  DateTime @default(now())
 
   items SaleItem[]
@@ -87,14 +86,17 @@ model SaleItem {
   productId String
   product   Product @relation(fields: [productId], references: [id])
 
-  quantity  Int
-  unitPrice Int // centavos
-  subtotal  Int // centavos
+  qty      Int
+  price    Int
+  subtotal Int
+
+  @@index([saleId])
+  @@index([productId])
 }
 
 model ChatRoom {
   id          String     @id @default(uuid())
-  type        String // "FRANCHISE" o "GLOBAL"
+  type        String     // "FRANCHISE" o "GLOBAL"
   franchiseId String?
   franchise   Franchise? @relation(fields: [franchiseId], references: [id])
 
@@ -108,7 +110,7 @@ model ChatMessage {
   room   ChatRoom @relation(fields: [roomId], references: [id], onDelete: Cascade)
 
   senderId String
-  sender   User   @relation(fields: [senderId], references: [id])
+  sender   User @relation(fields: [senderId], references: [id])
 
   text      String
   createdAt DateTime @default(now())
