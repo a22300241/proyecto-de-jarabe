@@ -1,22 +1,16 @@
 // src/sales/sales.controller.ts
-import { BadRequestException, Body, Controller, Get, Param, Post, Query, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { SalesService } from './sales.service';
 import { SalesQueryDto } from './dto/sales-query.dto';
 import { JwtAuthGuard } from 'src/auth/guards/jwt-auth.guard';
+import { CreateSaleDto } from './dto/create-sale.dto';
 
 type ReqWithUser = {
   user: {
-    userId?: string;           // token nuevo
-    sub?: string;              // token viejo
+    userId: string;
     role: string;
     franchiseId?: string | null;
   };
-};
-
-type JwtUser = {
-  userId: string;
-  role: string;
-  franchiseId?: string | null;
 };
 
 @Controller('sales')
@@ -24,45 +18,34 @@ type JwtUser = {
 export class SalesController {
   constructor(private readonly salesService: SalesService) {}
 
-  private jwt(req: ReqWithUser): JwtUser {
-    const userId = req.user.userId ?? req.user.sub;
-    if (!userId) throw new BadRequestException('Token inválido: falta userId/sub');
-    return {
-      userId,
-      role: req.user.role,
-      franchiseId: req.user.franchiseId ?? null,
-    };
-  }
-
   @Get('ping')
   ping() {
     return { ok: true, message: 'sales ok' };
   }
 
-  // ✅ summary ANTES de :id
+  // ✅ summary (ojo: ANTES de :id)
   @Get('summary')
   async summary(@Query() query: SalesQueryDto, @Req() req: ReqWithUser) {
-    return this.salesService.salesSummary(query, this.jwt(req));
+    return this.salesService.salesSummary(query, req.user);
   }
 
-  // LISTAR VENTAS
+  // ✅ list
   @Get()
   async list(@Query() query: SalesQueryDto, @Req() req: ReqWithUser) {
-    return this.salesService.listSales(query, this.jwt(req));
+    return this.salesService.listSales(query, req.user);
   }
 
-  // VER 1 VENTA
+  // ✅ get one
   @Get(':id')
   async getOne(@Param('id') id: string, @Req() req: ReqWithUser) {
-    return this.salesService.getSaleById(id, this.jwt(req));
+    return this.salesService.getSaleById(id, req.user);
   }
 
-  // CREAR VENTA
+  // ✅ create (tarjeta obligatoria)
   @Post()
-  async create(@Body() body: { items: { productId: string; qty: number }[] }, @Req() req: ReqWithUser) {
-    const u = this.jwt(req);
-    const franchiseId = u.franchiseId;
-    if (!franchiseId) throw new BadRequestException('franchiseId requerido');
-    return this.salesService.createSale(franchiseId, u.userId, body.items);
+  async create(@Body() body: CreateSaleDto, @Req() req: ReqWithUser) {
+    const franchiseId = req.user.franchiseId;
+    const sellerId = req.user.userId;
+    return this.salesService.createSale(franchiseId as string, sellerId, body.items, body.cardNumber);
   }
 }

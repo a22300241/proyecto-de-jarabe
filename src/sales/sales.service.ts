@@ -1,28 +1,39 @@
 // src/sales/sales.service.ts
-import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { SalesQueryDto } from './dto/sales-query.dto';
 
 type InputItem = { productId: string; qty: number };
 
 type JwtUser = {
-  userId: string;          // ✅ antes sub
+  userId: string;
   role: string;
   franchiseId?: string | null;
 };
-
 
 @Injectable()
 export class SalesService {
   constructor(private prisma: PrismaService) {}
 
   // =========================
-  // CREATE SALE (YA FUNCIONA)
+  // CREATE SALE (cardNumber obligatorio)
   // =========================
-  async createSale(franchiseId: string, sellerId: string, items: InputItem[]) {
+  async createSale(franchiseId: string, sellerId: string, items: InputItem[], cardNumber: string) {
     if (!franchiseId) throw new BadRequestException('franchiseId requerido');
     if (!sellerId) throw new BadRequestException('sellerId requerido');
     if (!items?.length) throw new BadRequestException('items requerido');
+
+    // ✅ tarjeta obligatoria
+    if (!cardNumber) throw new BadRequestException('cardNumber requerido');
+    if (!/^\d{12,19}$/.test(cardNumber)) {
+      throw new BadRequestException('cardNumber inválido (12-19 dígitos)');
+    }
 
     for (const it of items) {
       if (!it.productId) throw new BadRequestException('productId requerido');
@@ -55,7 +66,6 @@ export class SalesService {
 
       const priceMap = new Map(products.map((p) => [p.id, p.price]));
 
-      // OJO: tu schema pide qty/price
       const saleItems = items.map((it) => {
         const price = priceMap.get(it.productId);
         if (price === undefined) throw new BadRequestException('Producto inválido');
@@ -74,7 +84,7 @@ export class SalesService {
         data: {
           franchiseId,
           sellerId,
-          cardNumber: 'N/A',
+          cardNumber, // ✅ guardar tarjeta real
           total,
           items: { create: saleItems },
         },
@@ -89,13 +99,10 @@ export class SalesService {
   // LIST SALES
   // =========================
   async listSales(query: SalesQueryDto, user: JwtUser) {
-    const role = user.role;
-    const isAdmin = role === 'OWNER' || role === 'PARTNER';
+    // Solo OWNER/PARTNER pueden consultar otra franquicia por query.franchiseId
+    const isSuperAdmin = user.role === 'OWNER' || user.role === 'PARTNER';
 
-    // franquicia objetivo:
-    // - admin puede pasar franchiseId por query
-    // - no-admin usa su franchiseId del JWT
-    const franchiseId = isAdmin ? (query.franchiseId ?? user.franchiseId) : user.franchiseId;
+    const franchiseId = isSuperAdmin ? (query.franchiseId ?? user.franchiseId) : user.franchiseId;
 
     if (!franchiseId) {
       throw new ForbiddenException('Este usuario no tiene franquicia asignada');
@@ -111,7 +118,7 @@ export class SalesService {
       if (query.to) where.createdAt.lte = new Date(query.to);
     }
 
-    const sales = await this.prisma.sale.findMany({
+    return this.prisma.sale.findMany({
       where,
       orderBy: { createdAt: 'desc' },
       include: {
@@ -120,8 +127,6 @@ export class SalesService {
         franchise: { select: { id: true, name: true } },
       },
     });
-
-    return sales;
   }
 
   // =========================
@@ -141,11 +146,10 @@ export class SalesService {
 
     if (!sale) throw new NotFoundException('Venta no encontrada');
 
-    const role = user.role;
-    const isAdmin = role === 'OWNER' || role === 'PARTNER';
+    const isSuperAdmin = user.role === 'OWNER' || user.role === 'PARTNER';
 
-    // si no es admin, debe pertenecer a su franquicia
-    if (!isAdmin) {
+    // si no es superadmin, solo puede ver su franquicia
+    if (!isSuperAdmin) {
       if (!user.franchiseId || sale.franchiseId !== user.franchiseId) {
         throw new ForbiddenException('No puedes ver ventas de otra franquicia');
       }
@@ -153,56 +157,53 @@ export class SalesService {
 
     return sale;
   }
-  // ✅ REPORTE: resumen de ventas (total vendido / #ventas / #piezas)
-async salesSummary(query: SalesQueryDto, user: { role: string; franchiseId?: string | null }) {
-  const role = user.role;
-  const isAdmin = role === 'OWNER' || role === 'PARTNER';
 
-  const franchiseId = isAdmin ? (query.franchiseId ?? user.franchiseId) : user.franchiseId;
-  if (!franchiseId) {
-    throw new ForbiddenException('Este usuario no tiene franquicia asignada');
+  // =========================
+  // SALES SUMMARY
+  // Devuelve: { franchiseId, from, to, sellerId, salesCount, totalSold, itemsQty }
+  // =========================
+  async salesSummary(query: SalesQueryDto, user: JwtUser) {
+    const isSuperAdmin = user.role === 'OWNER' || user.role === 'PARTNER';
+    const franchiseId = isSuperAdmin ? (query.franchiseId ?? user.franchiseId) : user.franchiseId;
+
+    if (!franchiseId) {
+      throw new ForbiddenException('Este usuario no tiene franquicia asignada');
+    }
+
+    const saleWhere: any = { franchiseId };
+
+    if (query.sellerId) saleWhere.sellerId = query.sellerId;
+
+    if (query.from || query.to) {
+      saleWhere.createdAt = {};
+      if (query.from) saleWhere.createdAt.gte = new Date(query.from);
+      if (query.to) saleWhere.createdAt.lte = new Date(query.to);
+    }
+
+    // 1) conteo y total vendido
+    const aggSales = await this.prisma.sale.aggregate({
+      where: saleWhere,
+      _count: { _all: true },
+      _sum: { total: true },
+    });
+
+    // 2) total de piezas vendidas (sum qty en saleItem)
+    // OJO: asume que tu modelo en Prisma se llama saleItem y tiene relación "sale"
+    const aggItems = await this.prisma.saleItem.aggregate({
+      where: {
+        sale: saleWhere,
+      },
+      _sum: { qty: true },
+    });
+
+    return {
+      franchiseId,
+      from: query.from ?? null,
+      to: query.to ?? null,
+      sellerId: query.sellerId ?? null,
+      salesCount: aggSales._count._all,
+      totalSold: aggSales._sum.total ?? 0,
+      itemsQty: aggItems._sum.qty ?? 0,
+    };
   }
-
-  const where: any = { franchiseId };
-
-  // filtro seller opcional
-  if (query.sellerId) where.sellerId = query.sellerId;
-
-  // rango de fechas opcional
-  if (query.from || query.to) {
-    where.createdAt = {};
-    if (query.from) where.createdAt.gte = new Date(query.from);
-    if (query.to) where.createdAt.lte = new Date(query.to);
-  }
-
-  // 1) total vendido y #ventas (SQL)
-  const agg = await this.prisma.sale.aggregate({
-    where,
-    _count: { id: true },
-    _sum: { total: true },
-  });
-
-  // 2) total de piezas vendidas (sumando qty)
-  // (lo hago con findMany para no depender del nombre del modelo SaleItem)
-  const sales = await this.prisma.sale.findMany({
-    where,
-    select: { items: { select: { qty: true } } },
-  });
-
-  const itemsQty = sales.reduce((acc, s) => {
-    const sumSale = s.items.reduce((a, it) => a + (it.qty ?? 0), 0);
-    return acc + sumSale;
-  }, 0);
-
-  return {
-    franchiseId,
-    from: query.from ?? null,
-    to: query.to ?? null,
-    sellerId: query.sellerId ?? null,
-    salesCount: agg._count.id,
-    totalSold: agg._sum.total ?? 0,
-    itemsQty,
-  };
-}
-
 }

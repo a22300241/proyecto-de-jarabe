@@ -1,4 +1,4 @@
-import { IsArray, IsInt, IsString, Min, ValidateNested, IsOptional } from 'class-validator';
+import { IsArray, IsInt, IsString, Min, ValidateNested, Matches } from 'class-validator';
 import { Type } from 'class-transformer';
 
 export class CreateSaleItemDto {
@@ -16,7 +16,9 @@ export class CreateSaleDto {
   @Type(() => CreateSaleItemDto)
   items: CreateSaleItemDto[];
 
-  @IsOptional()
+  // ✅ OBLIGATORIO (tarjeta)
   @IsString()
-  cardNumber?: string;
+  // mínimo 12 a 19 dígitos (básico para tarjetas). Ajusta si quieres.
+  @Matches(/^\d{12,19}$/, { message: 'cardNumber inválido (12-19 dígitos)' })
+  cardNumber: string;
 }
