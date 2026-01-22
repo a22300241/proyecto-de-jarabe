@@ -1,15 +1,15 @@
-version: "3.9"
-
 services:
   api:
     container_name: pos_api
     build:
       context: .
       dockerfile: Dockerfile.dev
-    command: sh -lc "npx prisma migrate deploy && npm run start:dev"
+    working_dir: /usr/src/app
+    command: sh -lc "npm run prisma:dbpush && npm run start:dev"
     volumes:
-      - .:/usr/src/app
-      - /usr/src/app/node_modules
+       - .:/usr/src/app
+       - /usr/src/app/node_modules
+
     ports:
       - "3000:3000"
     environment:
