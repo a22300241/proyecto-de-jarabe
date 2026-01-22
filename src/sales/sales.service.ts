@@ -153,4 +153,56 @@ export class SalesService {
 
     return sale;
   }
+  // ✅ REPORTE: resumen de ventas (total vendido / #ventas / #piezas)
+async salesSummary(query: SalesQueryDto, user: { role: string; franchiseId?: string | null }) {
+  const role = user.role;
+  const isAdmin = role === 'OWNER' || role === 'PARTNER';
+
+  const franchiseId = isAdmin ? (query.franchiseId ?? user.franchiseId) : user.franchiseId;
+  if (!franchiseId) {
+    throw new ForbiddenException('Este usuario no tiene franquicia asignada');
+  }
+
+  const where: any = { franchiseId };
+
+  // filtro seller opcional
+  if (query.sellerId) where.sellerId = query.sellerId;
+
+  // rango de fechas opcional
+  if (query.from || query.to) {
+    where.createdAt = {};
+    if (query.from) where.createdAt.gte = new Date(query.from);
+    if (query.to) where.createdAt.lte = new Date(query.to);
+  }
+
+  // 1) total vendido y #ventas (SQL)
+  const agg = await this.prisma.sale.aggregate({
+    where,
+    _count: { id: true },
+    _sum: { total: true },
+  });
+
+  // 2) total de piezas vendidas (sumando qty)
+  // (lo hago con findMany para no depender del nombre del modelo SaleItem)
+  const sales = await this.prisma.sale.findMany({
+    where,
+    select: { items: { select: { qty: true } } },
+  });
+
+  const itemsQty = sales.reduce((acc, s) => {
+    const sumSale = s.items.reduce((a, it) => a + (it.qty ?? 0), 0);
+    return acc + sumSale;
+  }, 0);
+
+  return {
+    franchiseId,
+    from: query.from ?? null,
+    to: query.to ?? null,
+    sellerId: query.sellerId ?? null,
+    salesCount: agg._count.id,
+    totalSold: agg._sum.total ?? 0,
+    itemsQty,
+  };
+}
+
 }
