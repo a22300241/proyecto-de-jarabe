@@ -1,10 +1,9 @@
 import { Controller, Get, Post, Patch, Delete, Param, Body, Query, UseGuards, Req } from '@nestjs/common';
 import type { Request } from 'express';
 
-
 import { ProductsService } from './products.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
-
+import { RestockProductDto } from './dto/restock-product.dto';
 
 @Controller('products')
 @UseGuards(JwtAuthGuard)
@@ -29,6 +28,12 @@ export class ProductsController {
   @Patch(':id')
   update(@Req() req: Request, @Param('id') id: string, @Body() body: any) {
     return this.products.update(req.user as any, id, body);
+  }
+
+  // ✅ SURTIR (reabastecer): suma stock y baja faltantes (missing)
+  @Patch(':id/restock')
+  restock(@Req() req: Request, @Param('id') id: string, @Body() body: RestockProductDto) {
+    return this.products.restock(req.user as any, id, body.qty);
   }
 
   @Delete(':id')

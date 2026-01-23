@@ -1,4 +1,4 @@
-import { Injectable, ForbiddenException, NotFoundException } from '@nestjs/common';
+import { Injectable, ForbiddenException, NotFoundException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 
 type ReqUser = {
@@ -97,6 +97,55 @@ export class ProductsService {
 });
 
   }
+  async restock(user: ReqUser, id: string, qty: number) {
+  // SELLER no puede surtir
+  if (user.role === 'SELLER') throw new ForbiddenException('No puedes surtir productos');
+
+  if (!Number.isInteger(qty) || qty <= 0) {
+    throw new BadRequestException('qty inválido (entero > 0)');
+  }
+
+  return this.prisma.$transaction(async (tx) => {
+    const product = await tx.product.findUnique({
+      where: { id },
+      select: { id: true, franchiseId: true, stock: true, missing: true },
+    });
+
+    if (!product) throw new NotFoundException('Producto no encontrado');
+
+    // FRANCHISE_OWNER solo su franquicia
+    if (user.role === 'FRANCHISE_OWNER') {
+      if (!user.franchiseId || product.franchiseId !== user.franchiseId) {
+        throw new ForbiddenException('No puedes surtir productos de otra franquicia');
+      }
+    }
+
+    // OWNER/PARTNER pueden todo (por franquicia)
+    const currentMissing = product.missing ?? 0;
+
+    // ✅ regla: siempre sumas stock, y bajas missing sin irte a negativos
+    const newMissing = Math.max(0, currentMissing - qty);
+
+    const updated = await tx.product.update({
+      where: { id },
+      data: {
+        stock: { increment: qty },
+        missing: newMissing, // set absoluto para evitar negativos
+      },
+      select: { id: true, name: true, stock: true, missing: true, franchiseId: true },
+    });
+
+    return {
+      ok: true,
+      message: 'Producto surtido',
+      qtyAdded: qty,
+      before: { stock: product.stock, missing: currentMissing },
+      after: { stock: updated.stock, missing: updated.missing },
+      product: updated,
+    };
+  });
+}
+
 
   async remove(user: ReqUser, id: string) {
     // SELLER no puede eliminar

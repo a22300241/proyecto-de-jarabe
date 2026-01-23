@@ -24,12 +24,17 @@ export class SalesService {
   // =========================
   // CREATE SALE (cardNumber obligatorio)
   // =========================
-  async createSale(franchiseId: string, sellerId: string, items: InputItem[], cardNumber: string) {
+  async createSale(
+    franchiseId: string,
+    sellerId: string,
+    items: InputItem[],
+    cardNumber: string,
+  ) {
     if (!franchiseId) throw new BadRequestException('franchiseId requerido');
     if (!sellerId) throw new BadRequestException('sellerId requerido');
     if (!items?.length) throw new BadRequestException('items requerido');
 
-    // ✅ tarjeta obligatoria
+    // ✅ tarjeta obligatoria (si NO quieres validar formato, borra el regex y listo)
     if (!cardNumber) throw new BadRequestException('cardNumber requerido');
     if (!/^\d{12,19}$/.test(cardNumber)) {
       throw new BadRequestException('cardNumber inválido (12-19 dígitos)');
@@ -46,19 +51,35 @@ export class SalesService {
       // validar productos y obtener precios/stock
       const products = await tx.product.findMany({
         where: { franchiseId, id: { in: items.map((i) => i.productId) } },
-        select: { id: true, price: true, stock: true },
+        select: { id: true, price: true, stock: true, isActive: true },
       });
 
       if (products.length !== items.length) {
         throw new BadRequestException('Producto(s) no existen en esta franquicia');
       }
 
-      // descontar stock
+      // validar activos
+      for (const p of products) {
+        if (!p.isActive) {
+          throw new BadRequestException(`Producto inactivo: ${p.id}`);
+        }
+      }
+
+      // ✅ descontar stock + ✅ subir faltantes (missing)
       for (const it of items) {
         const updated = await tx.product.updateMany({
-          where: { id: it.productId, franchiseId, stock: { gte: it.qty } },
-          data: { stock: { decrement: it.qty } },
+          where: {
+            id: it.productId,
+            franchiseId,
+            isActive: true,
+            stock: { gte: it.qty },
+          },
+          data: {
+            stock: { decrement: it.qty },
+            missing: { increment: it.qty }, // ✅ FALTANTES
+          },
         });
+
         if (updated.count !== 1) {
           throw new ConflictException(`Stock insuficiente para ${it.productId}`);
         }
@@ -84,7 +105,7 @@ export class SalesService {
         data: {
           franchiseId,
           sellerId,
-          cardNumber, // ✅ guardar tarjeta real
+          cardNumber, // ✅ guardar tarjeta
           total,
           items: { create: saleItems },
         },
@@ -99,9 +120,7 @@ export class SalesService {
   // LIST SALES
   // =========================
   async listSales(query: SalesQueryDto, user: JwtUser) {
-    // Solo OWNER/PARTNER pueden consultar otra franquicia por query.franchiseId
     const isSuperAdmin = user.role === 'OWNER' || user.role === 'PARTNER';
-
     const franchiseId = isSuperAdmin ? (query.franchiseId ?? user.franchiseId) : user.franchiseId;
 
     if (!franchiseId) {
@@ -148,7 +167,6 @@ export class SalesService {
 
     const isSuperAdmin = user.role === 'OWNER' || user.role === 'PARTNER';
 
-    // si no es superadmin, solo puede ver su franquicia
     if (!isSuperAdmin) {
       if (!user.franchiseId || sale.franchiseId !== user.franchiseId) {
         throw new ForbiddenException('No puedes ver ventas de otra franquicia');
@@ -180,15 +198,12 @@ export class SalesService {
       if (query.to) saleWhere.createdAt.lte = new Date(query.to);
     }
 
-    // 1) conteo y total vendido
     const aggSales = await this.prisma.sale.aggregate({
       where: saleWhere,
       _count: { _all: true },
       _sum: { total: true },
     });
 
-    // 2) total de piezas vendidas (sum qty en saleItem)
-    // OJO: asume que tu modelo en Prisma se llama saleItem y tiene relación "sale"
     const aggItems = await this.prisma.saleItem.aggregate({
       where: {
         sale: saleWhere,
