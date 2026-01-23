@@ -13,12 +13,14 @@ import { APP_GUARD } from '@nestjs/core/constants';
 import { RolesGuard } from './auth/guards/roles.guard';
 import { JwtAuthGuard } from './auth/guards/jwt-auth.guard';
 import { AuditModule } from './audit/audit.module';
+import { ReportsModule } from './reports/reports.module';
 
 
 @Module({
   imports: [PrismaModule, 
     AuthModule, 
     AuditModule,
+    ReportsModule,
     UsersModule, 
     FranchisesModule, ProductsModule, 
     SalesModule, 
