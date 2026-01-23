@@ -8,6 +8,7 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { SalesQueryDto } from './dto/sales-query.dto';
+import { AuditService } from '../audit/audit.service';
 
 type InputItem = { productId: string; qty: number };
 
@@ -19,7 +20,10 @@ type JwtUser = {
 
 @Injectable()
 export class SalesService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private audit: AuditService,
+  ) {}
 
   // =========================
   // CREATE SALE (cardNumber obligatorio)
@@ -105,11 +109,27 @@ export class SalesService {
         data: {
           franchiseId,
           sellerId,
-          cardNumber, // ✅ guardar tarjeta
+          cardNumber,
           total,
           items: { create: saleItems },
         },
         include: { items: true },
+      });
+
+      // ✅ AUDIT LOG (importante: fuera del tx "tx", usamos this.audit (que usa PrismaService normal))
+      // Está bien porque solo es log; si quisieras 100% atomicidad tendrías que loguear con tx también,
+      // pero para tu entrega esto es perfecto y estable.
+      await this.audit.log({
+        user: { userId: sellerId, role: 'SELLER', franchiseId },
+        action: 'SALE_CREATE',
+        entity: 'Sale',
+        entityId: sale.id,
+        franchiseId,
+        payload: {
+          total: sale.total,
+          items: items.map((i) => ({ productId: i.productId, qty: i.qty })),
+          cardLast4: String(cardNumber).slice(-4),
+        },
       });
 
       return sale;
@@ -205,9 +225,7 @@ export class SalesService {
     });
 
     const aggItems = await this.prisma.saleItem.aggregate({
-      where: {
-        sale: saleWhere,
-      },
+      where: { sale: saleWhere },
       _sum: { qty: true },
     });
 

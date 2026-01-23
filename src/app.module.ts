@@ -12,10 +12,13 @@ import { FranchiseGuard } from './auth/guards/franchise.guard';
 import { APP_GUARD } from '@nestjs/core/constants';
 import { RolesGuard } from './auth/guards/roles.guard';
 import { JwtAuthGuard } from './auth/guards/jwt-auth.guard';
+import { AuditModule } from './audit/audit.module';
+
 
 @Module({
   imports: [PrismaModule, 
     AuthModule, 
+    AuditModule,
     UsersModule, 
     FranchisesModule, ProductsModule, 
     SalesModule, 

@@ -40,6 +40,8 @@ model User {
 
   sales        Sale[]
   sentMessages ChatMessage[]
+
+  refreshTokens RefreshToken[]
 }
 
 model Product {
@@ -50,7 +52,7 @@ model Product {
   isActive Boolean @default(true)
   name     String
   sku      String?
-  price    Int     // centavos
+  price    Int // centavos
   stock    Int     @default(0)
   missing  Int     @default(0)
 
@@ -61,13 +63,19 @@ model Product {
   @@index([franchiseId])
 }
 
+enum SaleStatus {
+  COMPLETED
+  CANCELED
+  REFUNDED
+}
+
 model Sale {
   id          String    @id @default(uuid())
   franchiseId String
   franchise   Franchise @relation(fields: [franchiseId], references: [id])
 
   sellerId String
-  seller   User @relation(fields: [sellerId], references: [id])
+  seller   User   @relation(fields: [sellerId], references: [id])
 
   cardNumber String?
   total      Int
@@ -75,7 +83,57 @@ model Sale {
 
   items SaleItem[]
 
+  status SaleStatus @default(COMPLETED)
+
+  canceledAt     DateTime?
+  canceledReason String?
+  canceledById   String?
+
+  refundedAt     DateTime?
+  refundedReason String?
+  refundedById   String?
+  refundTotal    Int? // cuánto se reembolsó (normalmente total)
+
   @@index([franchiseId, createdAt])
+}
+
+model DailyClose {
+  id          String   @id @default(uuid())
+  franchiseId String
+  day         DateTime // guardaremos el día a las 00:00:00
+  closedAt    DateTime @default(now())
+  closedById  String
+
+  @@unique([franchiseId, day])
+  @@index([day])
+}
+
+model RefreshToken {
+  id     String @id @default(uuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  tokenHash String
+  expiresAt DateTime
+  revokedAt DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId])
+}
+
+model AuditLog {
+  id          String   @id @default(uuid())
+  action      String
+  entity      String
+  entityId    String?
+  franchiseId String?
+  userId      String?
+  role        Role?
+  payload     Json?
+  createdAt   DateTime @default(now())
+
+  @@index([franchiseId, createdAt])
+  @@index([userId, createdAt])
 }
 
 model SaleItem {
@@ -96,7 +154,7 @@ model SaleItem {
 
 model ChatRoom {
   id          String     @id @default(uuid())
-  type        String     // "FRANCHISE" o "GLOBAL"
+  type        String // "FRANCHISE" o "GLOBAL"
   franchiseId String?
   franchise   Franchise? @relation(fields: [franchiseId], references: [id])
 
@@ -110,7 +168,7 @@ model ChatMessage {
   room   ChatRoom @relation(fields: [roomId], references: [id], onDelete: Cascade)
 
   senderId String
-  sender   User @relation(fields: [senderId], references: [id])
+  sender   User   @relation(fields: [senderId], references: [id])
 
   text      String
   createdAt DateTime @default(now())
