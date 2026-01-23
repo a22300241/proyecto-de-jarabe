@@ -5,13 +5,11 @@ import { SalesQueryDto } from './dto/sales-query.dto';
 import { JwtAuthGuard } from 'src/auth/guards/jwt-auth.guard';
 import { CreateSaleDto } from './dto/create-sale.dto';
 
-type ReqWithUser = {
-  user: {
-    userId: string;
-    role: string;
-    franchiseId?: string | null;
-  };
-};
+import { JwtUser } from '../auth/types/jwt-user.type';
+
+type ReqWithUser = { user: JwtUser };
+
+
 
 @Controller('sales')
 @UseGuards(JwtAuthGuard)
@@ -48,4 +46,23 @@ export class SalesController {
     const sellerId = req.user.userId;
     return this.salesService.createSale(franchiseId as string, sellerId, body.items, body.cardNumber);
   }
+
+ @Post(':id/cancel')
+cancel(
+  @Param('id') id: string,
+  @Body() body: { reason?: string },
+  @Req() req: ReqWithUser,
+) {
+  return this.salesService.cancelSale(id, req.user, body?.reason ?? null);
+}
+
+@Post(':id/refund')
+refund(
+  @Param('id') id: string,
+  @Body() body: { reason?: string },
+  @Req() req: ReqWithUser,
+) {
+  return this.salesService.refundSale(id, req.user, body?.reason ?? null);
+}
+
 }

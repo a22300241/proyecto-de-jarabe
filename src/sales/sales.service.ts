@@ -9,12 +9,14 @@ import {
 import { PrismaService } from '../prisma/prisma.service';
 import { SalesQueryDto } from './dto/sales-query.dto';
 import { AuditService } from '../audit/audit.service';
+import { Role, SaleStatus } from '@prisma/client'; // ✅ IMPORTA ENUMS
 
 type InputItem = { productId: string; qty: number };
 
+// ✅ AHORA role ES enum Role, NO string
 type JwtUser = {
   userId: string;
-  role: string;
+  role: Role;
   franchiseId?: string | null;
 };
 
@@ -38,7 +40,6 @@ export class SalesService {
     if (!sellerId) throw new BadRequestException('sellerId requerido');
     if (!items?.length) throw new BadRequestException('items requerido');
 
-    // ✅ tarjeta obligatoria (si NO quieres validar formato, borra el regex y listo)
     if (!cardNumber) throw new BadRequestException('cardNumber requerido');
     if (!/^\d{12,19}$/.test(cardNumber)) {
       throw new BadRequestException('cardNumber inválido (12-19 dígitos)');
@@ -52,7 +53,6 @@ export class SalesService {
     }
 
     return this.prisma.$transaction(async (tx) => {
-      // validar productos y obtener precios/stock
       const products = await tx.product.findMany({
         where: { franchiseId, id: { in: items.map((i) => i.productId) } },
         select: { id: true, price: true, stock: true, isActive: true },
@@ -62,14 +62,12 @@ export class SalesService {
         throw new BadRequestException('Producto(s) no existen en esta franquicia');
       }
 
-      // validar activos
       for (const p of products) {
         if (!p.isActive) {
           throw new BadRequestException(`Producto inactivo: ${p.id}`);
         }
       }
 
-      // ✅ descontar stock + ✅ subir faltantes (missing)
       for (const it of items) {
         const updated = await tx.product.updateMany({
           where: {
@@ -80,7 +78,7 @@ export class SalesService {
           },
           data: {
             stock: { decrement: it.qty },
-            missing: { increment: it.qty }, // ✅ FALTANTES
+            missing: { increment: it.qty },
           },
         });
 
@@ -116,11 +114,9 @@ export class SalesService {
         include: { items: true },
       });
 
-      // ✅ AUDIT LOG (importante: fuera del tx "tx", usamos this.audit (que usa PrismaService normal))
-      // Está bien porque solo es log; si quisieras 100% atomicidad tendrías que loguear con tx también,
-      // pero para tu entrega esto es perfecto y estable.
+      // ✅ AUDIT LOG (solo último 4)
       await this.audit.log({
-        user: { userId: sellerId, role: 'SELLER', franchiseId },
+        user: { userId: sellerId, role: Role.SELLER, franchiseId }, // ✅ Role.SELLER
         action: 'SALE_CREATE',
         entity: 'Sale',
         entityId: sale.id,
@@ -140,7 +136,7 @@ export class SalesService {
   // LIST SALES
   // =========================
   async listSales(query: SalesQueryDto, user: JwtUser) {
-    const isSuperAdmin = user.role === 'OWNER' || user.role === 'PARTNER';
+    const isSuperAdmin = user.role === Role.OWNER || user.role === Role.PARTNER;
     const franchiseId = isSuperAdmin ? (query.franchiseId ?? user.franchiseId) : user.franchiseId;
 
     if (!franchiseId) {
@@ -185,7 +181,7 @@ export class SalesService {
 
     if (!sale) throw new NotFoundException('Venta no encontrada');
 
-    const isSuperAdmin = user.role === 'OWNER' || user.role === 'PARTNER';
+    const isSuperAdmin = user.role === Role.OWNER || user.role === Role.PARTNER;
 
     if (!isSuperAdmin) {
       if (!user.franchiseId || sale.franchiseId !== user.franchiseId) {
@@ -198,10 +194,9 @@ export class SalesService {
 
   // =========================
   // SALES SUMMARY
-  // Devuelve: { franchiseId, from, to, sellerId, salesCount, totalSold, itemsQty }
   // =========================
   async salesSummary(query: SalesQueryDto, user: JwtUser) {
-    const isSuperAdmin = user.role === 'OWNER' || user.role === 'PARTNER';
+    const isSuperAdmin = user.role === Role.OWNER || user.role === Role.PARTNER;
     const franchiseId = isSuperAdmin ? (query.franchiseId ?? user.franchiseId) : user.franchiseId;
 
     if (!franchiseId) {
@@ -238,5 +233,127 @@ export class SalesService {
       totalSold: aggSales._sum.total ?? 0,
       itemsQty: aggItems._sum.qty ?? 0,
     };
+  }
+
+  // =========================
+  // CANCEL SALE (reversa inventario + audit)
+  // =========================
+  async cancelSale(saleId: string, user: JwtUser, reason: string | null) {
+    const isSuperAdmin = user.role === Role.OWNER || user.role === Role.PARTNER;
+
+    const sale = await this.prisma.sale.findUnique({
+      where: { id: saleId },
+      include: { items: true },
+    });
+    if (!sale) throw new NotFoundException('Venta no encontrada');
+
+    if (!isSuperAdmin) {
+      if (!user.franchiseId || sale.franchiseId !== user.franchiseId) {
+        throw new ForbiddenException('No puedes cancelar ventas de otra franquicia');
+      }
+    }
+
+    if (sale.status !== SaleStatus.COMPLETED) {
+      throw new BadRequestException('Solo puedes cancelar ventas COMPLETED');
+    }
+
+    return this.prisma.$transaction(async (tx) => {
+      for (const it of sale.items) {
+        // ✅ evita missing negativo
+        await tx.product.update({
+          where: { id: it.productId },
+          data: {
+            stock: { increment: it.qty },
+            missing: { decrement: it.qty },
+          },
+        });
+      }
+
+      const updated = await tx.sale.update({
+        where: { id: saleId },
+        data: {
+          status: SaleStatus.CANCELED, // ✅ enum
+          canceledAt: new Date(),
+          canceledReason: reason ?? null,
+          canceledById: user.userId,
+        },
+        include: { items: true },
+      });
+
+      await tx.auditLog.create({
+        data: {
+          action: 'SALE_CANCEL',
+          entity: 'Sale',
+          entityId: saleId,
+          franchiseId: sale.franchiseId,
+          userId: user.userId,
+          role: user.role, // ✅ ahora es Role
+          payload: { reason },
+        },
+      });
+
+      return updated;
+    });
+  }
+
+  // =========================
+  // REFUND SALE (reversa inventario + audit)
+  // =========================
+  async refundSale(saleId: string, user: JwtUser, reason: string | null) {
+    const isSuperAdmin = user.role === Role.OWNER || user.role === Role.PARTNER;
+
+    const sale = await this.prisma.sale.findUnique({
+      where: { id: saleId },
+      include: { items: true },
+    });
+    if (!sale) throw new NotFoundException('Venta no encontrada');
+
+    if (!isSuperAdmin) {
+      if (!user.franchiseId || sale.franchiseId !== user.franchiseId) {
+        throw new ForbiddenException('No puedes reembolsar ventas de otra franquicia');
+      }
+    }
+
+    if (sale.status !== SaleStatus.COMPLETED) {
+      throw new BadRequestException('Solo puedes reembolsar ventas COMPLETED');
+    }
+
+    return this.prisma.$transaction(async (tx) => {
+      for (const it of sale.items) {
+        await tx.product.update({
+          where: { id: it.productId },
+          data: {
+            stock: { increment: it.qty },
+            missing: { decrement: it.qty },
+          },
+        });
+      }
+
+      const updated = await tx.sale.update({
+        where: { id: saleId },
+        data: {
+          status: SaleStatus.REFUNDED, // ✅ enum
+          refundedAt: new Date(),
+          refundedReason: reason ?? null,
+          refundedById: user.userId,
+          refundTotal: sale.total,
+        },
+        include: { items: true },
+      });
+
+      await tx.auditLog.create({
+        data: {
+          action: 'SALE_REFUND',
+          entity: 'Sale',
+          entityId: saleId,
+          franchiseId: sale.franchiseId,
+          userId: user.userId,
+          role: user.role, // ✅ ahora es Role
+          payload: { reason, refundTotal: sale.total },
+        },
+      });
+
+      return updated;
+    });
   }
 }
