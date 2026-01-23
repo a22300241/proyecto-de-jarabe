@@ -1,20 +1,29 @@
-import { CanActivate, ExecutionContext, Injectable } from '@nestjs/common';
+import { CanActivate, ExecutionContext, ForbiddenException, Injectable } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
-import { IS_PUBLIC_KEY } from '../public.decorator';
+import { ROLES_KEY } from '../decorators/roles.decorator';
 
 @Injectable()
 export class RolesGuard implements CanActivate {
   constructor(private reflector: Reflector) {}
 
-  canActivate(ctx: ExecutionContext): boolean {
-    const isPublic = this.reflector.getAllAndOverride<boolean>(IS_PUBLIC_KEY, [
-      ctx.getHandler(),
-      ctx.getClass(),
+  canActivate(context: ExecutionContext): boolean {
+    const requiredRoles = this.reflector.getAllAndOverride<string[]>(ROLES_KEY, [
+      context.getHandler(),
+      context.getClass(),
     ]);
-    if (isPublic) return true;
 
-    // Si tu roles guard ya tiene lógica, aquí la dejas.
-    // Si no tienes roles por metadata, simplemente permite y ya.
+    // Si no requiere roles, deja pasar
+    if (!requiredRoles || requiredRoles.length === 0) return true;
+
+    const req = context.switchToHttp().getRequest();
+    const user = req.user; // viene del JwtAuthGuard
+
+    if (!user?.role) throw new ForbiddenException('No autenticado');
+
+    if (!requiredRoles.includes(user.role)) {
+      throw new ForbiddenException('No autorizado');
+    }
+
     return true;
   }
 }
