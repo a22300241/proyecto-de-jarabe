@@ -40,4 +40,13 @@ export class ProductsController {
   remove(@Req() req: Request, @Param('id') id: string) {
     return this.products.remove(req.user as any, id);
   }
+  @Patch(':id/adjust')
+adjust(
+  @Req() req: Request,
+  @Param('id') id: string,
+  @Body() body: { stockDelta: number; reason?: string }
+) {
+  return this.products.adjust(req.user as any, id, body);
+}
+
 }

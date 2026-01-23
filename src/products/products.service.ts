@@ -3,6 +3,7 @@ import {
   ForbiddenException,
   NotFoundException,
   BadRequestException,
+  ConflictException,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
@@ -220,4 +221,47 @@ export class ProductsService {
     }
     return franchiseIdFromQuery;
   }
+  async adjust(user: ReqUser, id: string, body: { stockDelta: number; reason?: string }) {
+  if (user.role === 'SELLER') throw new ForbiddenException('No puedes ajustar inventario');
+
+  const stockDelta = Number(body.stockDelta);
+  if (!Number.isFinite(stockDelta) || !Number.isInteger(stockDelta) || stockDelta === 0) {
+    throw new BadRequestException('stockDelta debe ser entero y diferente de 0');
+  }
+
+  const product = await this.prisma.product.findUnique({ where: { id } });
+  if (!product) throw new NotFoundException('Producto no encontrado');
+
+  // FRANCHISE_OWNER solo su franquicia
+  if (user.role === 'FRANCHISE_OWNER') {
+    if (!user.franchiseId || product.franchiseId !== user.franchiseId) {
+      throw new ForbiddenException('No puedes ajustar productos de otra franquicia');
+    }
+  }
+
+  // si es decremento, asegurar que haya stock suficiente
+  if (stockDelta < 0 && product.stock < Math.abs(stockDelta)) {
+    throw new ConflictException('No hay stock suficiente para disminuir');
+  }
+
+  // ✅ regla de surtido:
+  // - si stockDelta > 0: stock += delta y missing -= min(missing, delta)
+  // - si stockDelta < 0: stock -= abs(delta) y missing no cambia
+  const data: any = {
+    stock: { increment: stockDelta },
+  };
+
+  if (stockDelta > 0) {
+    const decMissing = Math.min(product.missing ?? 0, stockDelta);
+    if (decMissing > 0) {
+      data.missing = { decrement: decMissing };
+    }
+  }
+
+  return this.prisma.product.update({
+    where: { id },
+    data,
+  });
+}
+
 }
