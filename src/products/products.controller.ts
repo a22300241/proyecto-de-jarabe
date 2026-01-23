@@ -11,9 +11,23 @@ export class ProductsController {
   constructor(private readonly products: ProductsService) {}
 
   @Get()
-  list(@Req() req: Request, @Query('franchiseId') franchiseId?: string) {
-    return this.products.list(req.user as any, franchiseId);
-  }
+  list(
+  @Req() req: Request,
+  @Query('franchiseId') franchiseId?: string,
+  @Query('q') q?: string,
+  @Query('sku') sku?: string,
+  @Query('minStock') minStock?: string,
+  @Query('hasMissing') hasMissing?: string,
+  @Query('isActive') isActive?: string,
+  @Query('page') page?: string,
+  @Query('pageSize') pageSize?: string,
+  @Query('sort') sort?: string,
+) {
+  return this.products.list(req.user as any, franchiseId, {
+    q, sku, minStock, hasMissing, isActive, page, pageSize, sort
+  });
+}
+
 
   @Get(':id')
   getOne(@Req() req: Request, @Param('id') id: string) {

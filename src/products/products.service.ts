@@ -9,11 +9,13 @@ import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { Role } from '@prisma/client';
 
+
 type ReqUser = {
   id: string;
-  role: string;
+  role: Role;
   franchiseId: string | null;
 };
+
 
 @Injectable()
 export class ProductsService {
@@ -22,14 +24,67 @@ export class ProductsService {
     private audit: AuditService,
   ) {}
 
-  async list(user: ReqUser, franchiseIdFromQuery?: string) {
-    const targetFranchiseId = this.resolveFranchise(user, franchiseIdFromQuery);
+  async list(user: ReqUser, franchiseIdFromQuery?: string, filters?: any) {
+  const targetFranchiseId = this.resolveFranchise(user, franchiseIdFromQuery);
 
-    return this.prisma.product.findMany({
-      where: { franchiseId: targetFranchiseId, isActive: true },
-      orderBy: { createdAt: 'desc' },
-    });
+  const where: any = { franchiseId: targetFranchiseId };
+
+  // filtros
+  if (filters?.isActive !== undefined && filters.isActive !== '') {
+    where.isActive = String(filters.isActive).toLowerCase() === 'true';
+  } else {
+    // default: activos
+    where.isActive = true;
   }
+
+  if (filters?.q) {
+    where.name = { contains: String(filters.q), mode: 'insensitive' };
+  }
+
+  if (filters?.sku) {
+    where.sku = { contains: String(filters.sku), mode: 'insensitive' };
+  }
+
+  if (filters?.minStock !== undefined && filters.minStock !== '') {
+    const ms = Number(filters.minStock);
+    if (!Number.isFinite(ms)) throw new BadRequestException('minStock inválido');
+    where.stock = { gte: ms };
+  }
+
+  if (filters?.hasMissing !== undefined && filters.hasMissing !== '') {
+    const hm = String(filters.hasMissing).toLowerCase() === 'true';
+    if (hm) where.missing = { gt: 0 };
+  }
+
+  // paginación
+  const page = Math.max(1, parseInt(filters?.page ?? '1', 10) || 1);
+  const pageSize = Math.min(100, Math.max(1, parseInt(filters?.pageSize ?? '20', 10) || 20));
+  const skip = (page - 1) * pageSize;
+  const take = pageSize;
+
+  // sort: createdAt_desc | createdAt_asc | name_asc | name_desc | stock_asc | stock_desc
+  const sort = String(filters?.sort ?? 'createdAt_desc');
+  const orderBy: any =
+    sort === 'createdAt_asc' ? { createdAt: 'asc' } :
+    sort === 'name_asc' ? { name: 'asc' } :
+    sort === 'name_desc' ? { name: 'desc' } :
+    sort === 'stock_asc' ? { stock: 'asc' } :
+    sort === 'stock_desc' ? { stock: 'desc' } :
+    { createdAt: 'desc' };
+
+  const [total, items] = await this.prisma.$transaction([
+    this.prisma.product.count({ where }),
+    this.prisma.product.findMany({ where, orderBy, skip, take }),
+  ]);
+
+  return {
+    page,
+    pageSize,
+    total,
+    items,
+  };
+}
+
 
   async getOne(user: ReqUser, id: string) {
     const product = await this.prisma.product.findUnique({ where: { id } });
