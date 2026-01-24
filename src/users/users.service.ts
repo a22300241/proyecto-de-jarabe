@@ -135,5 +135,124 @@ export class UsersService {
       select: { id: true, email: true, name: true, role: true, franchiseId: true, createdAt: true },
     });
   }
-  
+  // ============================
+// Helpers de permisos
+// ============================
+private isTopBoss(user: JwtUser) {
+  return user.role === Role.OWNER || user.role === Role.PARTNER;
+}
+
+private isFranchiseOwner(user: JwtUser) {
+  return user.role === Role.FRANCHISE_OWNER;
+}
+
+private assertCanManageUser(requester: JwtUser, target: { role: Role; franchiseId: string | null }) {
+  const isBoss = this.isTopBoss(requester);
+  const isFrOwner = this.isFranchiseOwner(requester);
+
+  if (!isBoss && !isFrOwner) {
+    throw new ForbiddenException('No tienes permisos para administrar usuarios');
+  }
+
+  if (isFrOwner) {
+    if (!requester.franchiseId) throw new ForbiddenException('Usuario sin franquicia asignada');
+    if (target.role !== Role.SELLER) throw new ForbiddenException('Solo puedes administrar SELLER');
+    if (target.franchiseId !== requester.franchiseId) {
+      throw new ForbiddenException('Solo puedes administrar SELLER de tu franquicia');
+    }
+  }
+}
+
+// ============================
+// DESACTIVAR usuario (soft) ✅
+// ============================
+async deactivateUser(requester: JwtUser, userId: string) {
+  if (!userId) throw new BadRequestException('userId requerido');
+
+  const target = await this.prisma.user.findUnique({
+    where: { id: userId },
+    select: { id: true, role: true, franchiseId: true, isActive: true },
+  });
+  if (!target) throw new NotFoundException('Usuario no existe');
+
+  if (userId === requester.userId) {
+    throw new BadRequestException('No puedes desactivarte a ti mismo');
+  }
+
+  this.assertCanManageUser(requester, {
+    role: target.role,
+    franchiseId: target.franchiseId ?? null,
+  });
+
+  await this.prisma.$transaction([
+    this.prisma.refreshToken.deleteMany({ where: { userId: target.id } }),
+    this.prisma.user.update({
+      where: { id: target.id },
+      data: {
+        isActive: false,
+        // deletedAt: new Date(), // si lo tienes en prisma
+      },
+    }),
+  ]);
+
+  return { ok: true, userId: target.id, isActive: false };
+}
+
+// ============================
+// ACTIVAR usuario ✅
+// ============================
+async activateUser(requester: JwtUser, userId: string) {
+  if (!userId) throw new BadRequestException('userId requerido');
+
+  const target = await this.prisma.user.findUnique({
+    where: { id: userId },
+    select: { id: true, role: true, franchiseId: true, isActive: true },
+  });
+  if (!target) throw new NotFoundException('Usuario no existe');
+
+  this.assertCanManageUser(requester, {
+    role: target.role,
+    franchiseId: target.franchiseId ?? null,
+  });
+
+  await this.prisma.user.update({
+    where: { id: target.id },
+    data: {
+      isActive: true,
+      // deletedAt: null,
+    },
+  });
+
+  return { ok: true, userId: target.id, isActive: true };
+}
+
+// ============================
+// HARD DELETE usuario (si NO tiene ventas) ⚠️
+// ============================
+async hardDeleteUserIfPossible(requester: JwtUser, userId: string) {
+  if (!userId) throw new BadRequestException('userId requerido');
+
+  const target = await this.prisma.user.findUnique({
+    where: { id: userId },
+    select: { id: true, role: true, franchiseId: true },
+  });
+  if (!target) throw new NotFoundException('Usuario no existe');
+
+  this.assertCanManageUser(requester, { role: target.role, franchiseId: target.franchiseId ?? null });
+
+  const salesCount = await this.prisma.sale.count({ where: { sellerId: target.id } });
+  if (salesCount > 0) {
+    throw new BadRequestException('Este usuario tiene ventas. Usa DESACTIVAR (soft delete).');
+  }
+
+  await this.prisma.$transaction([
+    this.prisma.refreshToken.deleteMany({ where: { userId: target.id } }),
+    this.prisma.chatRoomMember.deleteMany({ where: { userId: target.id } }),
+    this.prisma.chatMessage.deleteMany({ where: { senderId: target.id } }),
+    this.prisma.user.delete({ where: { id: target.id } }),
+  ]);
+
+  return { ok: true, deletedUserId: target.id };
+}
+
 }

@@ -1,4 +1,4 @@
-import { Body, Controller, Get,Delete, Post, Query, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get,Delete, Post, Query, Req, UseGuards, Param, Patch } from '@nestjs/common';
 import { UsersService } from './users.service';
 import { JwtAuthGuard } from 'src/auth/guards/jwt-auth.guard';
 import { RolesGuard } from 'src/auth/guards/roles.guard';
@@ -31,5 +31,19 @@ export class UsersController {
   @Roles('OWNER', 'PARTNER', 'FRANCHISE_OWNER', 'SELLER')
   async list(@Req() req: ReqWithUser, @Query('franchiseId') franchiseId?: string) {
     return this.usersService.listUsers(req.user, franchiseId);
+  }
+   @Patch(':id/deactivate')
+  deactivate(@Req() req: ReqWithUser, @Param('id') id: string) {
+    return this.users.deactivateUser(req.user, id);
+  }
+
+  @Patch(':id/activate')
+  activate(@Req() req: ReqWithUser, @Param('id') id: string) {
+    return this.users.activateUser(req.user, id);
+  }
+
+  @Delete(':id')
+  hardDelete(@Req() req: ReqWithUser, @Param('id') id: string) {
+    return this.users.hardDeleteUserIfPossible(req.user, id);
   }
 }
