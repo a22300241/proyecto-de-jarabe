@@ -2,12 +2,11 @@ import { BadRequestException, ForbiddenException, Injectable, NotFoundException 
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateUserDto } from './dto/create-user.dto';
 import * as bcryptjs from 'bcryptjs';
+import { Role } from '@prisma/client';
 
-type JwtUser = {
-  userId: string;
-  role: 'OWNER' | 'PARTNER' | 'FRANCHISE_OWNER' | 'SELLER';
-  franchiseId?: string | null;
-};
+type JwtUser = { userId: string; role: Role; franchiseId?: string | null };
+
+
 
 @Injectable()
 export class UsersService {
@@ -136,4 +135,5 @@ export class UsersService {
       select: { id: true, email: true, name: true, role: true, franchiseId: true, createdAt: true },
     });
   }
+  
 }

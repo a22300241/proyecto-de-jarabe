@@ -25,23 +25,30 @@ model Franchise {
   products  Product[]
   sales     Sale[]
   chatRooms ChatRoom[]
+
+  @@index([isActive])
 }
 
 model User {
-  id           String   @id @default(uuid())
-  email        String   @unique
+  id           String     @id @default(uuid())
+  email        String     @unique
   name         String
   passwordHash String
   role         Role
-  createdAt    DateTime @default(now())
+  createdAt    DateTime   @default(now())
+  isActive     Boolean    @default(true)
+  deletedAt    DateTime?
+  franchiseId  String?
+  franchise    Franchise? @relation(fields: [franchiseId], references: [id])
 
-  franchiseId String?
-  franchise   Franchise? @relation(fields: [franchiseId], references: [id])
-
-  sales        Sale[]
-  sentMessages ChatMessage[]
+  sales           Sale[]
+  sentMessages    ChatMessage[]
+  chatRoomMembers ChatRoomMember[]
 
   refreshTokens RefreshToken[]
+
+  @@index([role])
+  @@index([franchiseId])
 }
 
 model Product {
@@ -61,6 +68,9 @@ model Product {
   saleItems SaleItem[]
 
   @@index([franchiseId])
+  @@index([franchiseId, isActive])
+  @@index([sku])
+  @@index([name])
 }
 
 enum SaleStatus {
@@ -92,48 +102,11 @@ model Sale {
   refundedAt     DateTime?
   refundedReason String?
   refundedById   String?
-  refundTotal    Int? // cuánto se reembolsó (normalmente total)
+  refundTotal    Int?
 
   @@index([franchiseId, createdAt])
-}
-
-model DailyClose {
-  id          String   @id @default(uuid())
-  franchiseId String
-  day         DateTime // guardaremos el día a las 00:00:00
-  closedAt    DateTime @default(now())
-  closedById  String
-
-  @@unique([franchiseId, day])
-  @@index([day])
-}
-
-model RefreshToken {
-  id     String @id @default(uuid())
-  userId String
-  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  tokenHash String
-  expiresAt DateTime
-  revokedAt DateTime?
-  createdAt DateTime  @default(now())
-
-  @@index([userId])
-}
-
-model AuditLog {
-  id          String   @id @default(uuid())
-  action      String
-  entity      String
-  entityId    String?
-  franchiseId String?
-  userId      String?
-  role        Role?
-  payload     Json?
-  createdAt   DateTime @default(now())
-
-  @@index([franchiseId, createdAt])
-  @@index([userId, createdAt])
+  @@index([sellerId, createdAt])
+  @@index([status])
 }
 
 model SaleItem {
@@ -152,14 +125,104 @@ model SaleItem {
   @@index([productId])
 }
 
+model DailyClose {
+  id          String   @id @default(uuid())
+  franchiseId String
+  day         DateTime // día a las 00:00:00
+  closedAt    DateTime @default(now())
+  closedById  String
+
+  @@unique([franchiseId, day])
+  @@index([day])
+  @@index([franchiseId])
+}
+
+model RefreshToken {
+  id     String @id @default(uuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  tokenHash String
+  expiresAt DateTime
+  revokedAt DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+model AuditLog {
+  id          String   @id @default(uuid())
+  action      String
+  entity      String
+  entityId    String?
+  franchiseId String?
+  userId      String?
+  role        Role?
+  payload     Json?
+  createdAt   DateTime @default(now())
+
+  @@index([franchiseId, createdAt])
+  @@index([userId, createdAt])
+  @@index([action])
+}
+
+/**
+ * =========================
+ * CHAT (CORREGIDO)
+ * - 1 sala FRANCHISE por franquicia
+ * - 1 sala GLOBAL única
+ * - DM por pareja (A,B ordenado)
+ * =========================
+ */
+
+/**
+ * =========================
+ * CHAT (FINAL)
+ * =========================
+ */
+enum ChatRoomType {
+  FRANCHISE
+  GLOBAL
+  DM
+}
+
 model ChatRoom {
-  id          String     @id @default(uuid())
-  type        String // "FRANCHISE" o "GLOBAL"
+  id   String       @id @default(uuid())
+  type ChatRoomType
+
+  // FRANCHISE
   franchiseId String?
   franchise   Franchise? @relation(fields: [franchiseId], references: [id])
 
-  createdAt DateTime      @default(now())
-  messages  ChatMessage[]
+  // DM (par único ordenado)
+  dmUserAId String?
+  dmUserBId String?
+
+  createdAt DateTime @default(now())
+
+  messages ChatMessage[]
+  members  ChatRoomMember[]
+
+  @@unique([type, franchiseId])
+  @@unique([type])
+  @@unique([dmUserAId, dmUserBId])
+  @@index([franchiseId])
+  @@index([type])
+}
+
+model ChatRoomMember {
+  id       String   @id @default(uuid())
+  roomId   String
+  userId   String
+  joinedAt DateTime @default(now())
+
+  room ChatRoom @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  user User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([roomId, userId])
+  @@index([userId])
+  @@index([roomId])
 }
 
 model ChatMessage {
@@ -172,4 +235,7 @@ model ChatMessage {
 
   text      String
   createdAt DateTime @default(now())
+
+  @@index([roomId, createdAt])
+  @@index([senderId, createdAt])
 }

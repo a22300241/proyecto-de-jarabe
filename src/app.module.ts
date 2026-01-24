@@ -20,6 +20,7 @@ import { ReportsModule } from './reports/reports.module';
   imports: [PrismaModule, 
     AuthModule, 
     AuditModule,
+    ChatModule,
     ReportsModule,
     UsersModule, 
     FranchisesModule, ProductsModule, 
