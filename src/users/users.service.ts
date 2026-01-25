@@ -28,6 +28,7 @@ export class UsersService {
         role: true,
         franchiseId: true,
         passwordHash: true, // 👈 importante para login
+        isActive: true, // ✅ NUEVO
       },
     });
 

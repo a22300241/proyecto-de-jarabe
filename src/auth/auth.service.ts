@@ -15,6 +15,11 @@ export class AuthService {
 
     if (!user) throw new UnauthorizedException('Credenciales inválidas');
 
+    // ✅ NUEVO: bloquear si está desactivado
+    if (user.isActive === false) {
+      throw new UnauthorizedException('Usuario desactivado');
+    }
+
     const ok = await bcrypt.compare(password, user.passwordHash);
     if (!ok) throw new UnauthorizedException('Credenciales inválidas');
 

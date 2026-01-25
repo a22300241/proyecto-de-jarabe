@@ -17,7 +17,9 @@ type ReqWithUser = {
 @Controller('users')
 @UseGuards(JwtAuthGuard, RolesGuard)
 export class UsersController {
-  constructor(private readonly usersService: UsersService) {}
+  constructor(private readonly usersService: UsersService,
+    private readonly users: UsersService
+  ) {}
 
   // ✅ Crear usuario (solo OWNER/PARTNER/FRANCHISE_OWNER)
   @Post()
