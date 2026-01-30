@@ -106,7 +106,7 @@ export class UsersService {
   }
 
   // ✅ Listado simple (para probar rápido / panel)
-  async listUsers(actor: JwtUser, franchiseId?: string) {
+  async listUsers(actor: JwtUser, franchiseId?: string) { //a todos estos le puse solo us active:true a cada cosa de aqui es lo del final
     const isAdmin = this.isAdmin(actor.role);
 
     // SELLER puede ver solo su franquicia (lectura)
@@ -115,7 +115,7 @@ export class UsersService {
       return this.prisma.user.findMany({
         where: { franchiseId: actor.franchiseId },
         orderBy: { createdAt: 'desc' },
-        select: { id: true, email: true, name: true, role: true, franchiseId: true, createdAt: true },
+        select: { id: true, email: true, name: true, role: true, franchiseId: true, createdAt: true, isActive: true },//aqui es is active
       });
     }
 
@@ -125,7 +125,7 @@ export class UsersService {
       return this.prisma.user.findMany({
         where: { franchiseId: actor.franchiseId },
         orderBy: { createdAt: 'desc' },
-        select: { id: true, email: true, name: true, role: true, franchiseId: true, createdAt: true },
+        select: { id: true, email: true, name: true, role: true, franchiseId: true, createdAt: true, isActive: true },//aqui es is active
       });
     }
 
@@ -133,7 +133,7 @@ export class UsersService {
     return this.prisma.user.findMany({
       where: franchiseId ? { franchiseId } : {},
       orderBy: { createdAt: 'desc' },
-      select: { id: true, email: true, name: true, role: true, franchiseId: true, createdAt: true },
+      select: { id: true, email: true, name: true, role: true, franchiseId: true, createdAt: true, isActive: true },//aqui es is active
     });
   }
   // ============================

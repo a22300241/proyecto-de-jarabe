@@ -1,9 +1,9 @@
-import { Body, Controller, Get, Param, Post, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { FranchisesService } from './franchises.service';
 import { Roles } from '../auth/roles.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CreateFranchiseDto } from './dto/create-franchise.dto';
-
+import { Role } from '@prisma/client';
 type ReqWithUser = {
   user: {
     userId: string;
@@ -45,5 +45,23 @@ export class FranchisesController {
   @Roles('OWNER', 'PARTNER')
   create(@Body() dto: CreateFranchiseDto) {
     return this.franchisesService.create(dto);
+  }
+  // ✅ DESACTIVAR
+  @Patch(':franchiseId/deactivate')
+  @Roles(Role.OWNER, Role.PARTNER)
+  deactivate(@Param('franchiseId') franchiseId: string) {
+    return this.franchisesService.setActive(franchiseId, false);
+  }
+
+  // ✅ ACTIVAR
+  @Patch(':franchiseId/activate')
+  @Roles(Role.OWNER, Role.PARTNER)
+  activate(@Param('franchiseId') franchiseId: string) {
+    return this.franchisesService.setActive(franchiseId, true);
+  }
+   @Delete(':franchiseId')
+  @Roles(Role.OWNER, Role.PARTNER)
+  remove(@Param('franchiseId') franchiseId: string, @Query('force') force?: string) {
+    return this.franchisesService.remove(franchiseId, force === 'true');
   }
 }
